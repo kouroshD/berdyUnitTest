@@ -28,7 +28,8 @@ add_subdirectory(data)
 
 # set cpp files
 set(${EXE_TARGET_NAME}_SRC
-  src/BerdyHelperUnitTest.cpp
+  src/berdyUnitTest.cpp
+  src/main.cpp
 #  src/BerdyMAPSolverUnitTest.cpp
 )
 
@@ -37,11 +38,11 @@ set(${EXE_TARGET_NAME}_HDR
 )
 
 # add include directories to the build.
-message(${CMAKE_CURRENT_BINARY_DIR})
 include_directories(
   ${CMAKE_CURRENT_SOURCE_DIR}/include
   ${CMAKE_CURRENT_BINARY_DIR}/data
   include/ModelTestUtils.h
+  include/berdyUnitTest.h
   ${CMAKE_CURRENT_BINARY_DIR}/data/testModels.h
 )
 

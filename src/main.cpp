@@ -22,11 +22,69 @@
 
 #include <iDynTree/Model/ForwardKinematics.h>
 #include <iDynTree/Model/Dynamics.h>
+#include <iDynTree/Estimation/BerdySparseMAPSolver.h>
+
 
 #include <cstdio>
 #include <cstdlib>
 
 using namespace iDynTree;
+
+
+struct BerdyData
+{
+    std::unique_ptr<iDynTree::BerdySparseMAPSolver> solver = nullptr;
+    iDynTree::BerdyHelper helper;
+
+    struct Priors
+    {
+        // Regularization priors
+        iDynTree::VectorDynSize dynamicsRegularizationExpectedValueVector; // mu_d
+        iDynTree::SparseMatrix<iDynTree::ColumnMajor> dynamicsRegularizationCovarianceMatrix; // sigma_d
+
+        // Dynamic constraint prior
+        iDynTree::SparseMatrix<iDynTree::ColumnMajor> dynamicsConstraintsCovarianceMatrix; // sigma_D
+
+        // Measurements prior
+        iDynTree::SparseMatrix<iDynTree::ColumnMajor> measurementsCovarianceMatrix; // sigma_y
+
+        static void
+        initializeSparseMatrixSize(size_t size,
+                                   iDynTree::SparseMatrix<iDynTree::ColumnMajor>& matrix)
+        {
+            iDynTree::Triplets identityTriplets;
+            identityTriplets.reserve(size);
+
+            // Set triplets to Identity
+            identityTriplets.setDiagonalMatrix(0, 0, 1.0, size);
+
+            matrix.resize(size, size);
+            matrix.setFromTriplets(identityTriplets);
+        }
+    } priors;
+
+    struct Buffers
+    {
+        iDynTree::VectorDynSize measurements;
+
+    } buffers;
+
+    struct KinematicState
+    {
+        iDynTree::FrameIndex floatingBaseFrameIndex;
+
+        iDynTree::Vector3 baseAngularVelocity;
+        iDynTree::JointPosDoubleArray jointsPosition;
+        iDynTree::JointDOFsDoubleArray jointsVelocity;
+        iDynTree::JointDOFsDoubleArray jointsAcceleration;
+    } state;
+
+    struct DynamicEstimates
+    {
+        iDynTree::JointDOFsDoubleArray jointTorqueEstimates;
+    } estimates;
+};
+
 
 void testBerdySensorMatrices(BerdyHelper & berdy, std::string filename)
 {
@@ -312,6 +370,9 @@ void testBerdyHelpers(std::string fileName)
 
     ASSERT_IS_TRUE(estimator.sensors().isConsistent(estimator.model()));
     ASSERT_IS_TRUE(ok);
+    class Impl;
+    std::unique_ptr<Impl> pImpl;
+//    pImpl{new Impl()};
 
     BerdyHelper berdyHelper;
 
@@ -357,6 +418,12 @@ void testBerdyHelpers(std::string fileName)
     berdyOptions.includeAllJointTorquesAsSensors = false;
     berdyOptions.includeFixedBaseExternalWrench = false;
 
+    // Initialize the BerdyHelper
+    if (!pImpl->berdyData.helper.init(modelLoader.model(), humanSensors, berdyOptions)) {
+        yError() << LogPrefix << "Failed to initialize BERDY";
+        return false;
+    }
+
     // Check berdy options
     if (!berdyOptions.checkConsistency()) {
         std::cout<< "BERDY options are not consistent";
@@ -394,3 +461,46 @@ int main()
 
     return EXIT_SUCCESS;
 }
+
+class Impl
+{
+public:
+    Impl()
+    {
+        gravity.zero();
+        gravity(2) = -9.81;
+    }
+
+    // Attached interfaces
+    hde::interfaces::IHumanState* iHumanState = nullptr;
+    hde::interfaces::IHumanWrench* iHumanWrench = nullptr;
+    yarp::dev::IAnalogSensor* iAnalogSensor = nullptr;
+
+    mutable std::mutex mutex;
+    iDynTree::Vector3 gravity;
+
+    const std::unordered_map<iDynTree::BerdySensorTypes, std::string> mapBerdySensorType = {
+        {iDynTree::BerdySensorTypes::SIX_AXIS_FORCE_TORQUE_SENSOR, "SIX_AXIS_FORCE_TORQUE_SENSOR"},
+        {iDynTree::BerdySensorTypes::ACCELEROMETER_SENSOR, "ACCELEROMETER_SENSOR"},
+        {iDynTree::BerdySensorTypes::GYROSCOPE_SENSOR, "GYROSCOPE_SENSOR"},
+        {iDynTree::BerdySensorTypes::THREE_AXIS_ANGULAR_ACCELEROMETER_SENSOR,
+         "THREE_AXIS_ANGULAR_ACCELEROMETER_SENSOR"},
+        {iDynTree::BerdySensorTypes::THREE_AXIS_FORCE_TORQUE_CONTACT_SENSOR,
+         "THREE_AXIS_FORCE_TORQUE_CONTACT_SENSOR"},
+        {iDynTree::BerdySensorTypes::DOF_ACCELERATION_SENSOR, "DOF_ACCELERATION_SENSOR"},
+        {iDynTree::BerdySensorTypes::DOF_TORQUE_SENSOR, "DOF_TORQUE_SENSOR"},
+        {iDynTree::BerdySensorTypes::NET_EXT_WRENCH_SENSOR, "NET_EXT_WRENCH_SENSOR"},
+        {iDynTree::BerdySensorTypes::JOINT_WRENCH_SENSOR, "JOINT_WRENCH_SENSOR"}};
+
+    // Berdy sensors map
+    SensorMapIndex sensorMapIndex;
+
+    // Berdy variable
+    BerdyData berdyData;
+
+    // Model variables
+    iDynTree::Model humanModel;
+
+    // Wrench sensor link names variable
+    std::vector<std::string> wrenchSensorsLinkNames;
+};
